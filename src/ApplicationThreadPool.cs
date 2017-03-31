@@ -1,7 +1,7 @@
 /**
  * The MIT License (MIT)
  *
- * Copyright (c) 2014 Ripcord Software Ltd
+ * Copyright (c) 2014-2017 Ripcord Software Ltd
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -12,7 +12,7 @@
  *
  * The above copyright notice and this permission notice shall be included in
  * all copies or substantial portions of the Software.
- * 
+ *
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
  * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
  * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
@@ -49,8 +49,25 @@ namespace RipcordSoftware.ThreadPool
             return System.Threading.ThreadPool.QueueUserWorkItem(callback, state);
         }
 
-        public int MaxThreads { get { int maxWorkers = 0, maxIO = 0; System.Threading.ThreadPool.GetMaxThreads(out maxWorkers, out maxIO); return maxWorkers; } }
-        public int AvailableThreads { get { int availableWorkers = 0, availableIO = 0; System.Threading.ThreadPool.GetAvailableThreads(out availableWorkers, out availableIO); return availableWorkers; } }
+        public int MaxThreads
+        {
+            get
+            {
+                int maxWorkers = 0, maxIO = 0;
+                System.Threading.ThreadPool.GetMaxThreads(out maxWorkers, out maxIO);
+                return maxWorkers;
+            }
+        }
+
+        public int AvailableThreads
+        {
+            get
+            {
+                int availableWorkers = 0, availableIO = 0;
+                System.Threading.ThreadPool.GetAvailableThreads(out availableWorkers, out availableIO);
+                return availableWorkers;
+            }
+        }
     }
 
     /// <summary>
@@ -92,7 +109,7 @@ namespace RipcordSoftware.ThreadPool
         /// <summary>
         /// A queue of state items which contain the definition of pieces of work
         /// </summary>
-        private readonly ConcurrentQueue<TheadPoolState> _threadStateQueue = new ConcurrentQueue<TheadPoolState>();
+        private readonly ConcurrentQueue<IThreadPoolState> _threadStateQueue = new ConcurrentQueue<IThreadPoolState>();
 
         /// <summary>
         /// An event used to request the threads to terminate
@@ -106,9 +123,15 @@ namespace RipcordSoftware.ThreadPool
         #endregion
 
         #region Types
-        private class TheadPoolState
+        public interface IThreadPoolState
         {
-            public TheadPoolState(WaitCallback callback, object state)
+            WaitCallback Callback { get; }
+            object State { get; }
+        }
+
+        private class ThreadPoolState : IThreadPoolState
+        {
+            public ThreadPoolState(WaitCallback callback, object state)
             {
                 Callback = callback;
                 State = state;
@@ -116,6 +139,51 @@ namespace RipcordSoftware.ThreadPool
 
             public WaitCallback Callback { get; protected set; }
             public object State { get; protected set; }
+        }
+
+        public class TaskState : IThreadPoolState, IDisposable
+        {
+            ManualResetEvent _finished = new ManualResetEvent(false);
+            volatile bool _isFinished = false;
+
+            public TaskState(WaitCallback callback, object state)
+            {
+                Callback = callback;
+                State = state;
+            }
+
+            public bool Join(int timeout = -1)
+            {
+                return _finished.WaitOne(timeout);
+            }
+
+            public static bool WaitAll(TaskState[] tasks)
+            {
+                foreach (var task in tasks)
+                {
+                    task.Join();
+                }
+
+                return true;
+            }
+
+            public void Dispose()
+            {
+                _finished.Dispose();
+            }
+
+            public WaitCallback Callback { get; protected set; }
+
+            public object State { get; protected set; }
+
+            public bool IsFinished
+            {
+                get { return _isFinished; }
+                internal set {
+                    _finished.Set();
+                    _isFinished = true;
+                }
+            }
         }
         #endregion
 
@@ -148,6 +216,27 @@ namespace RipcordSoftware.ThreadPool
         #endregion
 
         #region Public methods
+        public TaskState QueueUserTask(WaitCallback callback, object state = null)
+        {
+            TaskState taskState = null;
+
+            if (_threadStateQueue.Count < _maxQueueLength)
+            {
+                // increment the number of queued items
+                Interlocked.Increment(ref _queuedItems);
+
+                taskState = new TaskState(callback, state);
+
+                // add the state item to the queue
+                _threadStateQueue.Enqueue(taskState);
+
+                // notify any waiting threads that we have a new queue entry
+                NotifyWaitingQueueEntry();
+            }
+
+            return taskState;
+        }
+
         public bool QueueUserWorkItem(WaitCallback callback, object state = null)
         {
             bool queued = false;
@@ -158,7 +247,7 @@ namespace RipcordSoftware.ThreadPool
                 Interlocked.Increment(ref _queuedItems);
 
                 // add the state item to the queue
-                _threadStateQueue.Enqueue(new TheadPoolState(callback, state));
+                _threadStateQueue.Enqueue(new ThreadPoolState(callback, state));
 
                 // notify any waiting threads that we have a new queue entry
                 NotifyWaitingQueueEntry();
@@ -190,7 +279,7 @@ namespace RipcordSoftware.ThreadPool
             var waitHandles = new WaitHandle[2] { _threadEnd, _threadQueueGate };
 
             while (!callbackEnd)
-            {                    
+            {
                 // wait for the sempahore to show available queued items or the termination event
                 int eventIndex = EventWaitHandle.WaitAny(waitHandles);
 
@@ -201,7 +290,7 @@ namespace RipcordSoftware.ThreadPool
                 else if (_threadStateQueue.Count > 0)
                 {
                     // get the state item from the queue
-                    TheadPoolState threadState = null;
+                    IThreadPoolState threadState = null;
                     while (_threadStateQueue.Count > 0 && _threadStateQueue.TryDequeue(out threadState) && threadState != null)
                     {
                         try
@@ -217,6 +306,12 @@ namespace RipcordSoftware.ThreadPool
                         }
                         finally
                         {
+                            var taskState = threadState as TaskState;
+                            if (taskState != null)
+                            {
+                                taskState.IsFinished = true;
+                            }
+
                             // the thread has finished with the callback, so we are not active any more
                             Interlocked.Decrement(ref _activeThreads);
 
@@ -237,7 +332,7 @@ namespace RipcordSoftware.ThreadPool
                     _threadQueueGate.Release();
                 }
                 catch {}
-            }               
+            }
         }
         #endregion
 
@@ -268,10 +363,9 @@ namespace RipcordSoftware.ThreadPool
 
                 _threadEnd.Close();
 
-                _threadQueueGate.Close();                
-            });                
+                _threadQueueGate.Close();
+            });
         }
         #endregion
     }
 }
-
