@@ -23,6 +23,7 @@
 **/
 
 using System;
+using System.Collections.Generic;
 using System.Collections.Concurrent;
 using System.Threading;
 
@@ -123,45 +124,50 @@ namespace RipcordSoftware.ThreadPool
         #endregion
 
         #region Types
-        public interface IThreadPoolState
+        private interface IThreadPoolState
         {
             WaitCallback Callback { get; }
             object State { get; }
+            TaskState Task { get; }
         }
 
         private class ThreadPoolState : IThreadPoolState
         {
-            public ThreadPoolState(WaitCallback callback, object state)
+            public ThreadPoolState(WaitCallback callback, object state, TaskState task = null)
             {
                 Callback = callback;
                 State = state;
+                Task = task;
             }
 
             public WaitCallback Callback { get; protected set; }
             public object State { get; protected set; }
+            public TaskState Task { get; protected set; }
         }
 
-        public class TaskState : IThreadPoolState, IDisposable
+        public class TaskState : IDisposable
         {
-            ManualResetEvent _finished = new ManualResetEvent(false);
-            volatile bool _isFinished = false;
+            #region Private fields
+            private ManualResetEvent _finished = new ManualResetEvent(false);
+            private volatile bool _isFinished = false;
+            #endregion
 
-            public TaskState(WaitCallback callback, object state)
-            {
-                Callback = callback;
-                State = state;
-            }
-
+            #region Public methods
             public bool Join(int timeout = -1)
             {
-                return _finished.WaitOne(timeout);
+                return !_isFinished && _finished.WaitOne(timeout);
             }
 
-            public static bool WaitAll(TaskState[] tasks)
+            public static bool WaitAll(IList<TaskState> tasks, bool dispose = false)
             {
                 foreach (var task in tasks)
                 {
                     task.Join();
+
+                    if (dispose)
+                    {
+                        task.Dispose();
+                    }
                 }
 
                 return true;
@@ -171,7 +177,9 @@ namespace RipcordSoftware.ThreadPool
             {
                 _finished.Dispose();
             }
+            #endregion
 
+            #region Public properties
             public WaitCallback Callback { get; protected set; }
 
             public object State { get; protected set; }
@@ -179,11 +187,13 @@ namespace RipcordSoftware.ThreadPool
             public bool IsFinished
             {
                 get { return _isFinished; }
-                internal set {
+                internal set 
+                {
                     _finished.Set();
                     _isFinished = true;
                 }
             }
+            #endregion
         }
         #endregion
 
@@ -225,10 +235,11 @@ namespace RipcordSoftware.ThreadPool
                 // increment the number of queued items
                 Interlocked.Increment(ref _queuedItems);
 
-                taskState = new TaskState(callback, state);
+                taskState = new TaskState();
+                var threadState = new ThreadPoolState(callback, state, taskState);
 
                 // add the state item to the queue
-                _threadStateQueue.Enqueue(taskState);
+                _threadStateQueue.Enqueue(threadState);
 
                 // notify any waiting threads that we have a new queue entry
                 NotifyWaitingQueueEntry();
@@ -306,10 +317,9 @@ namespace RipcordSoftware.ThreadPool
                         }
                         finally
                         {
-                            var taskState = threadState as TaskState;
-                            if (taskState != null)
+                            if (threadState.Task != null)
                             {
-                                taskState.IsFinished = true;
+                                threadState.Task.IsFinished = true;
                             }
 
                             // the thread has finished with the callback, so we are not active any more
