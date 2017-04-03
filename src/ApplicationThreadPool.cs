@@ -180,10 +180,6 @@ namespace RipcordSoftware.ThreadPool
             #endregion
 
             #region Public properties
-            public WaitCallback Callback { get; protected set; }
-
-            public object State { get; protected set; }
-
             public bool IsFinished
             {
                 get { return _isFinished; }
@@ -317,16 +313,16 @@ namespace RipcordSoftware.ThreadPool
                         }
                         finally
                         {
-                            if (threadState.Task != null)
-                            {
-                                threadState.Task.IsFinished = true;
-                            }
-
                             // the thread has finished with the callback, so we are not active any more
                             Interlocked.Decrement(ref _activeThreads);
 
                             // the queued item is finished now, so decrement the count
                             Interlocked.Decrement(ref _queuedItems);
+
+                            if (threadState.Task != null)
+                            {
+                                threadState.Task.IsFinished = true;
+                            }
                         }
                     }
                 }
@@ -376,6 +372,55 @@ namespace RipcordSoftware.ThreadPool
                 _threadQueueGate.Close();
             });
         }
+        #endregion
+    }
+
+    /// <summary>
+    /// An application thread pool with strongly typed state
+    /// </summary>
+    /// <typeparam name="T">The type of the state object to passed to the worker queue and returned in the callback</typeparam>
+    public class ApplicationThreadPool<T> : IDisposable where T : class
+    {
+        #region Types
+        public delegate void WaitCallback(T obj);
+        #endregion
+
+        #region Private fields
+        private readonly ApplicationThreadPool _pool;
+        #endregion
+
+        #region Constructor
+        public ApplicationThreadPool(string name, int maxThreads, int maxQueueLength, bool background, ThreadPriority priority = ThreadPriority.Normal)
+        {
+            _pool = new ApplicationThreadPool(name, maxThreads, maxQueueLength, background, priority);
+        }
+        #endregion
+
+        #region Public methods
+        public bool QueueUserWorkItem(WaitCallback callback, T state = null)
+        {
+            return _pool.QueueUserWorkItem(obj => callback((T)obj), state);
+        }
+
+        public ApplicationThreadPool.TaskState QueueUserTask(WaitCallback callback, T state = null)
+        {
+            return _pool.QueueUserTask(obj => callback((T)obj), state);
+        }
+
+        public void Dispose()
+        {
+            _pool.Dispose();
+        }
+        #endregion
+
+        #region Public properties
+        public int ActiveThreads { get { return _pool.ActiveThreads; } }
+        public int AvailableThreads { get { return _pool.AvailableThreads; } }
+        public int MaxThreads { get { return _pool.MaxThreads; } }
+        public int TotalExceptions { get { return _pool.TotalExceptions; } }
+        public int QueueLength { get { return _pool.QueueLength; } }
+        public int TotalQueueLength { get { return _pool.TotalQueueLength; } }
+        public int MaxQueueLength { get { return _pool.MaxQueueLength; } }
         #endregion
     }
 }
