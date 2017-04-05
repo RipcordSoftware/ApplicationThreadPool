@@ -1,6 +1,6 @@
 platform: Any CPU
 configuration: Debug
-image: Visual Studio 2015
+image: Visual Studio 2017
 
 before_build:
     - cd tests\ThreadPool.Tests.dotnet
