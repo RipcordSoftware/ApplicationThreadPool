@@ -190,12 +190,16 @@ namespace ThreadPool.Tests
             using (var pool = new ApplicationThreadPool("test", 2, 8, true))
             {
                 var finished = false;
-                using (var task = pool.QueueUserTask(o => { finished = true; throw new Exception(); }))
+                using (var task = pool.QueueUserTask(o => { finished = true; throw new Exception("Hello world"); }))
                 {
                     task.Join();
+
+                    Assert.IsTrue(finished);
+                    Assert.IsTrue(task.HasException);
+                    Assert.IsTrue(task.Exception != null);
+                    Assert.AreEqual("Hello world", task.Exception.Message);
                 }
 
-                Assert.IsTrue(finished);
                 Assert.AreEqual(0, pool.ActiveThreads);
                 Assert.AreEqual(2, pool.AvailableThreads);
                 Assert.AreEqual(0, pool.QueueLength);

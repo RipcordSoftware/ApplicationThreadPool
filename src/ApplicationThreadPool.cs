@@ -194,6 +194,10 @@ namespace RipcordSoftware.ThreadPool
                     _isFinished = true;
                 }
             }
+
+            public Exception Exception { get; internal set; }
+
+            public bool HasException { get { return Exception != null; } }
             #endregion
         }
         #endregion
@@ -311,10 +315,15 @@ namespace RipcordSoftware.ThreadPool
                             Interlocked.Increment(ref _activeThreads);
                             threadState.Callback(threadState.State);
                         }
-                        catch (System.Exception)
+                        catch (System.Exception ex)
                         {
                             // something went bad, we don't want the thread to terminate so we just eat it and count it
                             Interlocked.Increment(ref _threadExceptions);
+
+                            if (threadState.Task != null)
+                            {
+                                threadState.Task.Exception = ex;
+                            }
                         }
                         finally
                         {
