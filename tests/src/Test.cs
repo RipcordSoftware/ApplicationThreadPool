@@ -2,13 +2,21 @@
 using System.Collections.Generic;
 using System.Collections.Concurrent;
 using System.Threading;
+using System.Diagnostics.CodeAnalysis;
 
+#if __MonoCS__
 using NUnit.Framework;
+#else
+using Microsoft.VisualStudio.TestTools.UnitTesting;
+using TestFixtureAttribute = Microsoft.VisualStudio.TestTools.UnitTesting.TestClassAttribute;
+using TestAttribute = Microsoft.VisualStudio.TestTools.UnitTesting.TestMethodAttribute;
+#endif
 
 using RipcordSoftware.ThreadPool;
 
 namespace ThreadPool.Tests
 {
+    [ExcludeFromCodeCoverage]
     [TestFixture()]
     public class Test
     {
@@ -45,6 +53,22 @@ namespace ThreadPool.Tests
         public void TestInitialState()
         {
             using (var pool = new ApplicationThreadPool("test", 2, 8, true))
+            {
+                Assert.AreEqual(0, pool.ActiveThreads);
+                Assert.AreEqual(2, pool.MaxThreads);
+                Assert.AreEqual(2, pool.AvailableThreads);
+                Assert.AreEqual(8, pool.MaxQueueLength);
+                Assert.AreEqual(0, pool.QueueLength);
+                Assert.AreEqual(0, pool.TotalExceptions);
+                Assert.AreEqual(0, pool.TotalQueueLength);
+                Assert.AreEqual(0, pool.CompletedItems);
+            }
+        }
+
+        [Test]
+        public void TestInitialTypedState()
+        {
+            using (var pool = new ApplicationThreadPool<string>("test", 2, 8, true))
             {
                 Assert.AreEqual(0, pool.ActiveThreads);
                 Assert.AreEqual(2, pool.MaxThreads);
@@ -426,6 +450,7 @@ namespace ThreadPool.Tests
         {
             using (var pool = new ApplicationThreadPool("test", 2, 8, true))
             {
+                var eventIndex = 0;
                 var activeWorkerEvents = new ConcurrentQueue<int>();
 
                 var workerEvents = new ManualResetEvent[4];
@@ -446,43 +471,46 @@ namespace ThreadPool.Tests
                 Assert.AreEqual(0, pool.TotalExceptions);
                 Assert.AreEqual(0, pool.CompletedItems);
 
-                int eventIndex = 0;
+                AssertWaitFor(() => activeWorkerEvents.Count > 0);
                 Assert.IsTrue(activeWorkerEvents.TryDequeue(out eventIndex));
                 workerEvents[eventIndex].Set();
 
-                AssertWaitFor(() => pool.CompletedItems == 1);
                 AssertWaitFor(() => pool.ActiveThreads == 2);
                 Assert.AreEqual(0, pool.AvailableThreads);
+                Assert.AreEqual(1, pool.CompletedItems);
                 Assert.AreEqual(1, pool.QueueLength);
                 Assert.AreEqual(3, pool.TotalQueueLength);
                 Assert.AreEqual(0, pool.TotalExceptions);
 
+                AssertWaitFor(() => activeWorkerEvents.Count > 0);
                 Assert.IsTrue(activeWorkerEvents.TryDequeue(out eventIndex));
                 workerEvents[eventIndex].Set();
-
-                AssertWaitFor(() => pool.CompletedItems == 2);
+                
                 AssertWaitFor(() => pool.ActiveThreads == 2);
                 Assert.AreEqual(0, pool.AvailableThreads);
+                Assert.AreEqual(2, pool.CompletedItems);
                 Assert.AreEqual(0, pool.QueueLength);
                 Assert.AreEqual(2, pool.TotalQueueLength);
                 Assert.AreEqual(0, pool.TotalExceptions);
 
+                AssertWaitFor(() => activeWorkerEvents.Count > 0);
                 Assert.IsTrue(activeWorkerEvents.TryDequeue(out eventIndex));
                 workerEvents[eventIndex].Set();
-
-                AssertWaitFor(() => pool.CompletedItems == 3);
+                
                 AssertWaitFor(() => pool.ActiveThreads == 1);
                 Assert.AreEqual(1, pool.AvailableThreads);
+                Assert.AreEqual(3, pool.CompletedItems);
                 Assert.AreEqual(0, pool.QueueLength);
                 Assert.AreEqual(1, pool.TotalQueueLength);
                 Assert.AreEqual(0, pool.TotalExceptions);
 
+                AssertWaitFor(() => activeWorkerEvents.Count > 0);
                 Assert.IsTrue(activeWorkerEvents.TryDequeue(out eventIndex));
                 workerEvents[eventIndex].Set();
-
-                AssertWaitFor(() => pool.CompletedItems == 4);
+                
                 AssertWaitFor(() => pool.ActiveThreads == 0);
                 Assert.AreEqual(2, pool.AvailableThreads);
+                Assert.AreEqual(4, pool.CompletedItems);
                 Assert.AreEqual(0, pool.QueueLength);
                 Assert.AreEqual(0, pool.TotalQueueLength);
                 Assert.AreEqual(0, pool.TotalExceptions);
