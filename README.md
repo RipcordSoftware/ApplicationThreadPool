@@ -1,4 +1,5 @@
 [![Build Status](https://travis-ci.org/RipcordSoftware/ApplicationThreadPool.svg)](https://travis-ci.org/RipcordSoftware/ApplicationThreadPool)
+[![Build status](https://ci.appveyor.com/api/projects/status/kl75ob7oytsqe3v3?svg=true)](https://ci.appveyor.com/project/craigminihan/applicationthreadpool)
 
 # ApplicationThreadPool
 An application thread pool for .NET or Mono.
