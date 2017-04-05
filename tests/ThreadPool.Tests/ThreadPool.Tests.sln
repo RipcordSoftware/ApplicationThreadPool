@@ -27,6 +27,7 @@ Global
 		$2.PropertyGetBraceStyle = NextLine
 		$2.PropertySetBraceStyle = NextLine
 		$2.StatementBraceStyle = NextLine
+		$2.EmbeddedStatementPlacement = DoNotCare
 		$2.BeforeMethodDeclarationParentheses = False
 		$2.BeforeMethodCallParentheses = False
 		$2.BeforeConstructorDeclarationParentheses = False
@@ -41,5 +42,11 @@ Global
 		$0.DotNetNamingPolicy = $3
 		$3.DirectoryNamespaceAssociation = None
 		$3.ResourceNamePolicy = FileFormatDefault
+		$0.TextStylePolicy = $4
+		$4.FileWidth = 120
+		$4.TabsToSpaces = False
+		$4.inheritsSet = VisualStudio
+		$4.inheritsScope = text/plain
+		$4.scope = text/plain
 	EndGlobalSection
 EndGlobal

@@ -98,6 +98,11 @@ namespace RipcordSoftware.ThreadPool
         private int _queuedItems = 0;
 
         /// <summary>
+        /// A count of the number of completed items
+        /// </summary>
+        private long _completedItems = 0;
+
+        /// <summary>
         /// The pool of threads
         /// </summary>
         private readonly Thread[] _threads;
@@ -319,6 +324,9 @@ namespace RipcordSoftware.ThreadPool
                             // the queued item is finished now, so decrement the count
                             Interlocked.Decrement(ref _queuedItems);
 
+                            // we have completed processing the item
+                            Interlocked.Increment(ref _completedItems);
+
                             if (threadState.Task != null)
                             {
                                 threadState.Task.IsFinished = true;
@@ -350,6 +358,7 @@ namespace RipcordSoftware.ThreadPool
         public int QueueLength { get { return _threadStateQueue.Count; } }
         public int TotalQueueLength { get { return _queuedItems; } }
         public int MaxQueueLength { get { return _maxQueueLength; } }
+        public long CompletedItems { get { return _completedItems; } }
         #endregion
 
         #region IDisposable Members
@@ -421,6 +430,7 @@ namespace RipcordSoftware.ThreadPool
         public int QueueLength { get { return _pool.QueueLength; } }
         public int TotalQueueLength { get { return _pool.TotalQueueLength; } }
         public int MaxQueueLength { get { return _pool.MaxQueueLength; } }
+        public long CompletedItems { get { return _pool.CompletedItems; } }
         #endregion
     }
 }

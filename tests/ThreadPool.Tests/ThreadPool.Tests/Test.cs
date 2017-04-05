@@ -12,6 +12,10 @@ namespace ThreadPool.Tests
     [TestFixture()]
     public class Test
     {
+        #region Constants
+        private const int DefaultAssertWait = 5000;
+        #endregion
+
         #region Types
         private delegate bool WaitFunction();
         #endregion
@@ -30,7 +34,7 @@ namespace ThreadPool.Tests
             return status;
         }
 
-        private static void AssertWaitFor(WaitFunction func, int timeout)
+        private static void AssertWaitFor(WaitFunction func, int timeout = DefaultAssertWait)
         {
             Assert.IsTrue(WaitFor(func, timeout));
         }
@@ -40,327 +44,446 @@ namespace ThreadPool.Tests
         [Test()]
         public void TestInitialState()
         {
-            var pool = new ApplicationThreadPool("test", 2, 8, true);
-
-            Assert.AreEqual(0, pool.ActiveThreads);
-            Assert.AreEqual(2, pool.MaxThreads);
-            Assert.AreEqual(2, pool.AvailableThreads);
-            Assert.AreEqual(8, pool.MaxQueueLength);
-            Assert.AreEqual(0, pool.QueueLength);
-            Assert.AreEqual(0, pool.TotalExceptions);
-            Assert.AreEqual(0, pool.TotalQueueLength);
+            using (var pool = new ApplicationThreadPool("test", 2, 8, true))
+            {
+                Assert.AreEqual(0, pool.ActiveThreads);
+                Assert.AreEqual(2, pool.MaxThreads);
+                Assert.AreEqual(2, pool.AvailableThreads);
+                Assert.AreEqual(8, pool.MaxQueueLength);
+                Assert.AreEqual(0, pool.QueueLength);
+                Assert.AreEqual(0, pool.TotalExceptions);
+                Assert.AreEqual(0, pool.TotalQueueLength);
+                Assert.AreEqual(0, pool.CompletedItems);
+            }
         }
 
         [Test()]
         public void TestSingleThread()
         {
-            var pool = new ApplicationThreadPool("test", 2, 8, true);
+            using (var pool = new ApplicationThreadPool("test", 2, 8, true))
+            {
+                var finished = false;
+                pool.QueueUserWorkItem(o => { finished = true; });
 
-            var finished = false;
-            object value = null;
-            pool.QueueUserWorkItem(o => { finished = true; });
+                AssertWaitFor(() => pool.CompletedItems == 1);
 
-            AssertWaitFor(() => finished, 5000);
-            AssertWaitFor(() => pool.ActiveThreads == 0, 1000);
-
-            Assert.AreEqual(null, value);
-
-            Assert.AreEqual(0, pool.ActiveThreads);
-            Assert.AreEqual(2, pool.AvailableThreads);
-            Assert.AreEqual(0, pool.QueueLength);
-            Assert.AreEqual(0, pool.TotalExceptions);
-            Assert.AreEqual(0, pool.TotalQueueLength);
+                Assert.IsTrue(finished);
+                Assert.AreEqual(0, pool.ActiveThreads);
+                Assert.AreEqual(2, pool.AvailableThreads);
+                Assert.AreEqual(0, pool.QueueLength);
+                Assert.AreEqual(0, pool.TotalExceptions);
+                Assert.AreEqual(0, pool.TotalQueueLength);
+            }
         }
 
         [Test()]
         public void TestSingleThreadWithValue()
         {
-            var pool = new ApplicationThreadPool("test", 2, 8, true);
+            using (var pool = new ApplicationThreadPool("test", 2, 8, true))
+            {
+                var finished = false;
+                object value = null;
+                pool.QueueUserWorkItem(o => { value = o; finished = true; }, "Hello world");
 
-            var finished = false;
-            object value = null;
-            pool.QueueUserWorkItem(o => { value = o; finished = true; }, "Hello world");
+                AssertWaitFor(() => pool.CompletedItems == 1);
 
-            AssertWaitFor(() => finished, 5000);
-            AssertWaitFor(() => pool.ActiveThreads == 0, 1000);
+                Assert.IsTrue(finished);
+                Assert.AreEqual(typeof(string), value.GetType());
+                Assert.AreEqual("Hello world", (string)value);
 
-            Assert.AreEqual(typeof(string), value.GetType());
-            Assert.AreEqual("Hello world", (string)value);
-
-            Assert.AreEqual(0, pool.ActiveThreads);
-            Assert.AreEqual(2, pool.AvailableThreads);
-            Assert.AreEqual(0, pool.QueueLength);
-            Assert.AreEqual(0, pool.TotalExceptions);
-            Assert.AreEqual(0, pool.TotalQueueLength);
+                Assert.AreEqual(0, pool.ActiveThreads);
+                Assert.AreEqual(2, pool.AvailableThreads);
+                Assert.AreEqual(0, pool.QueueLength);
+                Assert.AreEqual(0, pool.TotalExceptions);
+                Assert.AreEqual(0, pool.TotalQueueLength);
+            }
         }
 
         [Test()]
         public void TestFourThreads()
         {
-            var pool = new ApplicationThreadPool("test", 2, 8, true);
+            using (var pool = new ApplicationThreadPool("test", 2, 8, true))
+            {
+                var finished = 0;
+                pool.QueueUserWorkItem(o => { Interlocked.Increment(ref finished); });
+                pool.QueueUserWorkItem(o => { Interlocked.Increment(ref finished); });
+                pool.QueueUserWorkItem(o => { Interlocked.Increment(ref finished); });
+                pool.QueueUserWorkItem(o => { Interlocked.Increment(ref finished); });
 
-            var finished = 0;
-            pool.QueueUserWorkItem(o => { Interlocked.Increment(ref finished); });
-            pool.QueueUserWorkItem(o => { Interlocked.Increment(ref finished); });
-            pool.QueueUserWorkItem(o => { Interlocked.Increment(ref finished); });
-            pool.QueueUserWorkItem(o => { Interlocked.Increment(ref finished); });
+                AssertWaitFor(() => pool.CompletedItems == 4);
 
-            AssertWaitFor(() => finished == 4, 5000);
-            AssertWaitFor(() => pool.ActiveThreads == 0, 1000);
-
-            Assert.AreEqual(0, pool.ActiveThreads);
-            Assert.AreEqual(2, pool.AvailableThreads);
-            Assert.AreEqual(0, pool.QueueLength);
-            Assert.AreEqual(0, pool.TotalExceptions);
-            Assert.AreEqual(0, pool.TotalQueueLength);
+                Assert.AreEqual(4, finished);
+                Assert.AreEqual(0, pool.ActiveThreads);
+                Assert.AreEqual(2, pool.AvailableThreads);
+                Assert.AreEqual(0, pool.QueueLength);
+                Assert.AreEqual(0, pool.TotalExceptions);
+                Assert.AreEqual(0, pool.TotalQueueLength);
+            }
         }
 
         [Test()]
         public void TestMultipleThreads()
         {
             const int maxWorkItems = 1024;
-            var pool = new ApplicationThreadPool("test", 2, maxWorkItems, true);
-
-            var finished = 0;
-            for (var i = 0; i < maxWorkItems; ++i)
+            using (var pool = new ApplicationThreadPool("test", 2, maxWorkItems, true))
             {
-                pool.QueueUserWorkItem(o => { Interlocked.Increment(ref finished); });
+                var finished = 0;
+                for (var i = 0; i < maxWorkItems; ++i)
+                {
+                    pool.QueueUserWorkItem(o => { Interlocked.Increment(ref finished); });
+                }
+
+                AssertWaitFor(() => pool.CompletedItems == maxWorkItems);
+
+                Assert.AreEqual(maxWorkItems, finished);
+                Assert.AreEqual(0, pool.ActiveThreads);
+                Assert.AreEqual(2, pool.AvailableThreads);
+                Assert.AreEqual(0, pool.QueueLength);
+                Assert.AreEqual(0, pool.TotalExceptions);
+                Assert.AreEqual(0, pool.TotalQueueLength);
             }
-
-            AssertWaitFor(() => finished == maxWorkItems, 5000);
-            AssertWaitFor(() => pool.ActiveThreads == 0, 1000);
-
-            Assert.AreEqual(0, pool.ActiveThreads);
-            Assert.AreEqual(2, pool.AvailableThreads);
-            Assert.AreEqual(0, pool.QueueLength);
-            Assert.AreEqual(0, pool.TotalExceptions);
-            Assert.AreEqual(0, pool.TotalQueueLength);
         }
 
         [Test()]
         public void TestSingleThreadException()
         {
-            var pool = new ApplicationThreadPool("test", 2, 8, true);
+            using (var pool = new ApplicationThreadPool("test", 2, 8, true))
+            {
+                var finished = false;
+                pool.QueueUserWorkItem(o => { finished = true; throw new Exception(); });
 
-            var finished = false;
-            pool.QueueUserWorkItem(o => { finished = true; throw new Exception(); });
+                AssertWaitFor(() => pool.CompletedItems == 1);
 
-            AssertWaitFor(() => finished, 5000);
-            AssertWaitFor(() => pool.ActiveThreads == 0, 1000);
-
-            Assert.AreEqual(0, pool.ActiveThreads);
-            Assert.AreEqual(2, pool.AvailableThreads);
-            Assert.AreEqual(0, pool.QueueLength);
-            Assert.AreEqual(1, pool.TotalExceptions);
-            Assert.AreEqual(0, pool.TotalQueueLength);
+                Assert.IsTrue(finished);
+                Assert.AreEqual(0, pool.ActiveThreads);
+                Assert.AreEqual(2, pool.AvailableThreads);
+                Assert.AreEqual(0, pool.QueueLength);
+                Assert.AreEqual(1, pool.TotalExceptions);
+                Assert.AreEqual(0, pool.TotalQueueLength);
+            }
         }
 
         [Test()]
         public void TestSingleTask()
         {
-            var pool = new ApplicationThreadPool("test", 2, 8, true);
-
-            var finished = false;
-            using (var task = pool.QueueUserTask(o => { finished = true; }))
+            using (var pool = new ApplicationThreadPool("test", 2, 8, true))
             {
-                task.Join();
-            }
+                var finished = false;
+                using (var task = pool.QueueUserTask(o => { finished = true; }))
+                {
+                    task.Join();
+                }
 
-            Assert.IsTrue(finished);
-            Assert.AreEqual(0, pool.ActiveThreads);
-            Assert.AreEqual(2, pool.AvailableThreads);
-            Assert.AreEqual(0, pool.QueueLength);
-            Assert.AreEqual(0, pool.TotalExceptions);
-            Assert.AreEqual(0, pool.TotalQueueLength);
+                Assert.IsTrue(finished);
+                Assert.AreEqual(0, pool.ActiveThreads);
+                Assert.AreEqual(2, pool.AvailableThreads);
+                Assert.AreEqual(0, pool.QueueLength);
+                Assert.AreEqual(0, pool.TotalExceptions);
+                Assert.AreEqual(0, pool.TotalQueueLength);
+                Assert.AreEqual(1, pool.CompletedItems);
+            }
         }
 
         [Test()]
         public void TestSingleTaskException()
         {
-            var pool = new ApplicationThreadPool("test", 2, 8, true);
-
-            var finished = false;
-            using (var task = pool.QueueUserTask(o => { finished = true; throw new Exception(); }))
+            using (var pool = new ApplicationThreadPool("test", 2, 8, true))
             {
-                task.Join();
-            }
+                var finished = false;
+                using (var task = pool.QueueUserTask(o => { finished = true; throw new Exception(); }))
+                {
+                    task.Join();
+                }
 
-            Assert.IsTrue(finished);
-            Assert.AreEqual(0, pool.ActiveThreads);
-            Assert.AreEqual(2, pool.AvailableThreads);
-            Assert.AreEqual(0, pool.QueueLength);
-            Assert.AreEqual(1, pool.TotalExceptions);
-            Assert.AreEqual(0, pool.TotalQueueLength);
+                Assert.IsTrue(finished);
+                Assert.AreEqual(0, pool.ActiveThreads);
+                Assert.AreEqual(2, pool.AvailableThreads);
+                Assert.AreEqual(0, pool.QueueLength);
+                Assert.AreEqual(1, pool.TotalExceptions);
+                Assert.AreEqual(0, pool.TotalQueueLength);
+                Assert.AreEqual(1, pool.CompletedItems);
+            }
         }
 
         [Test()]
         public void TestMultipleTasks()
         {
             const int maxWorkItems = 1024;
-            var pool = new ApplicationThreadPool("test", 2, maxWorkItems, true);
-
-            int finished = 0;
-            var tasks = new List<ApplicationThreadPool.TaskState>();
-            for (var i = 0; i < maxWorkItems; ++i)
+            using (var pool = new ApplicationThreadPool("test", 2, maxWorkItems, true))
             {
-                tasks.Add(pool.QueueUserTask(o => { Interlocked.Increment(ref finished); }));
+                int finished = 0;
+                var tasks = new List<ApplicationThreadPool.TaskState>();
+                for (var i = 0; i < maxWorkItems; ++i)
+                {
+                    tasks.Add(pool.QueueUserTask(o => { Interlocked.Increment(ref finished); }));
+                }
+
+                ApplicationThreadPool.TaskState.WaitAll(tasks, true);
+
+                Assert.AreEqual(0, pool.ActiveThreads);
+                Assert.AreEqual(2, pool.AvailableThreads);
+                Assert.AreEqual(0, pool.QueueLength);
+                Assert.AreEqual(0, pool.TotalExceptions);
+                Assert.AreEqual(0, pool.TotalQueueLength);
+                Assert.AreEqual(maxWorkItems, pool.CompletedItems);
             }
-
-            ApplicationThreadPool.TaskState.WaitAll(tasks, true);
-
-            Assert.AreEqual(0, pool.ActiveThreads);
-            Assert.AreEqual(2, pool.AvailableThreads);
-            Assert.AreEqual(0, pool.QueueLength);
-            Assert.AreEqual(0, pool.TotalExceptions);
-            Assert.AreEqual(0, pool.TotalQueueLength);
         }
 
         [Test]
         public void TestSingleTypedThread()
         {
-            var pool = new ApplicationThreadPool<string>("test", 2, 8, true);
+            using (var pool = new ApplicationThreadPool<string>("test", 2, 8, true))
+            {
 
-            var finished = false;
-            Type paramType = null;
-            string paramValue = null;
-            pool.QueueUserWorkItem(o => { paramValue = o; paramType = o.GetType(); finished = true; }, "Hello world");
+                var finished = false;
+                Type paramType = null;
+                string paramValue = null;
+                pool.QueueUserWorkItem(o => { paramValue = o; paramType = o.GetType(); finished = true; }, "Hello world");
 
-            AssertWaitFor(() => finished, 5000);
-            AssertWaitFor(() => pool.ActiveThreads == 0, 1000);
+                AssertWaitFor(() => pool.CompletedItems == 1);
 
-            Assert.IsTrue(paramType == typeof(string));
-            Assert.AreEqual("Hello world", paramValue);
+                Assert.IsTrue(finished);
+                Assert.IsTrue(paramType == typeof(string));
+                Assert.AreEqual("Hello world", paramValue);
 
-            Assert.AreEqual(0, pool.ActiveThreads);
-            Assert.AreEqual(2, pool.AvailableThreads);
-            Assert.AreEqual(0, pool.QueueLength);
-            Assert.AreEqual(0, pool.TotalExceptions);
-            Assert.AreEqual(0, pool.TotalQueueLength);
+                Assert.AreEqual(0, pool.ActiveThreads);
+                Assert.AreEqual(2, pool.AvailableThreads);
+                Assert.AreEqual(0, pool.QueueLength);
+                Assert.AreEqual(0, pool.TotalExceptions);
+                Assert.AreEqual(0, pool.TotalQueueLength);
+            }
         }
 
         [Test()]
         public void TestFourTypedThreads()
         {
-            var pool = new ApplicationThreadPool<string>("test", 2, 8, true);
+            using (var pool = new ApplicationThreadPool<string>("test", 2, 8, true))
+            {
 
-            var values = new ConcurrentDictionary<string, bool>();
-            var finished = 0;
-            var count = 0;
-            pool.QueueUserWorkItem(o => { values[o] = true; Interlocked.Increment(ref finished); }, (count++).ToString());
-            pool.QueueUserWorkItem(o => { values[o] = true; Interlocked.Increment(ref finished); }, (count++).ToString());
-            pool.QueueUserWorkItem(o => { values[o] = true; Interlocked.Increment(ref finished); }, (count++).ToString());
-            pool.QueueUserWorkItem(o => { values[o] = true; Interlocked.Increment(ref finished); }, (count++).ToString());
+                var values = new ConcurrentDictionary<string, bool>();
+                var finished = 0;
+                var count = 0;
+                pool.QueueUserWorkItem(o => { values[o] = true; Interlocked.Increment(ref finished); }, (count++).ToString());
+                pool.QueueUserWorkItem(o => { values[o] = true; Interlocked.Increment(ref finished); }, (count++).ToString());
+                pool.QueueUserWorkItem(o => { values[o] = true; Interlocked.Increment(ref finished); }, (count++).ToString());
+                pool.QueueUserWorkItem(o => { values[o] = true; Interlocked.Increment(ref finished); }, (count++).ToString());
 
-            AssertWaitFor(() => finished == 4, 5000);
-            AssertWaitFor(() => pool.ActiveThreads == 0, 1000);
+                AssertWaitFor(() => pool.CompletedItems == 4);
 
-            Assert.AreEqual(4, values.Count);
+                Assert.AreEqual(4, finished);
+                Assert.AreEqual(4, values.Count);
 
-            Assert.AreEqual(0, pool.ActiveThreads);
-            Assert.AreEqual(2, pool.AvailableThreads);
-            Assert.AreEqual(0, pool.QueueLength);
-            Assert.AreEqual(0, pool.TotalExceptions);
-            Assert.AreEqual(0, pool.TotalQueueLength);
+                Assert.AreEqual(0, pool.ActiveThreads);
+                Assert.AreEqual(2, pool.AvailableThreads);
+                Assert.AreEqual(0, pool.QueueLength);
+                Assert.AreEqual(0, pool.TotalExceptions);
+                Assert.AreEqual(0, pool.TotalQueueLength);
+            }
         }
 
         [Test()]
         public void TestMultipleTypedThreads()
         {
             const int maxWorkItems = 1024;
-            var pool = new ApplicationThreadPool<string>("test", 2, maxWorkItems, true);
-
-            var finished = 0;
-            var values = new ConcurrentDictionary<string, bool>();
-            for (var i = 0; i < maxWorkItems; ++i)
+            using (var pool = new ApplicationThreadPool<string>("test", 2, maxWorkItems, true))
             {
-                pool.QueueUserWorkItem(o => { values[o] = true; Interlocked.Increment(ref finished); }, i.ToString());
+
+                var finished = 0;
+                var values = new ConcurrentDictionary<string, bool>();
+                for (var i = 0; i < maxWorkItems; ++i)
+                {
+                    pool.QueueUserWorkItem(o => { values[o] = true; Interlocked.Increment(ref finished); }, i.ToString());
+                }
+
+                AssertWaitFor(() => pool.CompletedItems == maxWorkItems);
+
+                Assert.AreEqual(maxWorkItems, finished);
+                Assert.AreEqual(maxWorkItems, values.Count);
+
+                Assert.AreEqual(0, pool.ActiveThreads);
+                Assert.AreEqual(2, pool.AvailableThreads);
+                Assert.AreEqual(0, pool.QueueLength);
+                Assert.AreEqual(0, pool.TotalExceptions);
+                Assert.AreEqual(0, pool.TotalQueueLength);
             }
-
-            AssertWaitFor(() => finished == maxWorkItems, 5000);
-            AssertWaitFor(() => pool.ActiveThreads == 0, 1000);
-
-            Assert.AreEqual(maxWorkItems, values.Count);
-
-            Assert.AreEqual(0, pool.ActiveThreads);
-            Assert.AreEqual(2, pool.AvailableThreads);
-            Assert.AreEqual(0, pool.QueueLength);
-            Assert.AreEqual(0, pool.TotalExceptions);
-            Assert.AreEqual(0, pool.TotalQueueLength);
         }
 
         [Test()]
         public void TestSingleTypedThreadException()
         {
-            var pool = new ApplicationThreadPool<string>("test", 2, 8, true);
+            using (var pool = new ApplicationThreadPool<string>("test", 2, 8, true))
+            {
+                var finished = false;
+                Type paramType = null;
+                string paramValue = null;
+                pool.QueueUserWorkItem(o => { paramValue = o; paramType = o.GetType(); finished = true; throw new Exception(); }, "Hello world");
 
-            var finished = false;
-            Type paramType = null;
-            string paramValue = null;
-            pool.QueueUserWorkItem(o => { paramValue = o; paramType = o.GetType(); finished = true; throw new Exception(); }, "Hello world");
+                AssertWaitFor(() => pool.CompletedItems == 1);
 
-            AssertWaitFor(() => finished, 5000);
-            AssertWaitFor(() => pool.ActiveThreads == 0, 1000);
+                Assert.IsTrue(finished);
+                Assert.IsTrue(paramType == typeof(string));
+                Assert.AreEqual("Hello world", paramValue);
 
-            Assert.IsTrue(paramType == typeof(string));
-            Assert.AreEqual("Hello world", paramValue);
-
-            Assert.AreEqual(0, pool.ActiveThreads);
-            Assert.AreEqual(2, pool.AvailableThreads);
-            Assert.AreEqual(0, pool.QueueLength);
-            Assert.AreEqual(1, pool.TotalExceptions);
-            Assert.AreEqual(0, pool.TotalQueueLength);
+                Assert.AreEqual(0, pool.ActiveThreads);
+                Assert.AreEqual(2, pool.AvailableThreads);
+                Assert.AreEqual(0, pool.QueueLength);
+                Assert.AreEqual(1, pool.TotalExceptions);
+                Assert.AreEqual(0, pool.TotalQueueLength);
+            }
         }
 
         [Test()]
         public void TestSingleTypedTask()
         {
-            var pool = new ApplicationThreadPool<string>("test", 2, 8, true);
-
-            var finished = false;
-            Type paramType = null;
-            string paramValue = null;
-            using (var task = pool.QueueUserTask(o => { paramValue = o; paramType = o.GetType(); finished = true; }, "Hello world"))
+            using (var pool = new ApplicationThreadPool<string>("test", 2, 8, true))
             {
-                task.Join();
+                var finished = false;
+                Type paramType = null;
+                string paramValue = null;
+                using (var task = pool.QueueUserTask(o => { paramValue = o; paramType = o.GetType(); finished = true; }, "Hello world"))
+                {
+                    task.Join();
+                }
+
+                Assert.IsTrue(finished);
+                Assert.IsTrue(paramType == typeof(string));
+                Assert.AreEqual("Hello world", paramValue);
+
+                Assert.AreEqual(0, pool.ActiveThreads);
+                Assert.AreEqual(2, pool.AvailableThreads);
+                Assert.AreEqual(0, pool.QueueLength);
+                Assert.AreEqual(0, pool.TotalExceptions);
+                Assert.AreEqual(0, pool.TotalQueueLength);
+                Assert.AreEqual(1, pool.CompletedItems);
             }
-
-            Assert.IsTrue(finished);
-            Assert.IsTrue(paramType == typeof(string));
-            Assert.AreEqual("Hello world", paramValue);
-
-            Assert.AreEqual(0, pool.ActiveThreads);
-            Assert.AreEqual(2, pool.AvailableThreads);
-            Assert.AreEqual(0, pool.QueueLength);
-            Assert.AreEqual(0, pool.TotalExceptions);
-            Assert.AreEqual(0, pool.TotalQueueLength);
         }
 
         [Test()]
         public void TestFourTypedTasks()
         {
-            var pool = new ApplicationThreadPool<string>("test", 2, 8, true);
+            using (var pool = new ApplicationThreadPool<string>("test", 2, 8, true))
+            {
+                var tasks = new List<ApplicationThreadPool.TaskState>();
+                var values = new ConcurrentDictionary<string, bool>();
+                var finished = 0;
+                var count = 0;
+                tasks.Add(pool.QueueUserTask(o => { values[o] = true; Interlocked.Increment(ref finished); }, (count++).ToString()));
+                tasks.Add(pool.QueueUserTask(o => { values[o] = true; Interlocked.Increment(ref finished); }, (count++).ToString()));
+                tasks.Add(pool.QueueUserTask(o => { values[o] = true; Interlocked.Increment(ref finished); }, (count++).ToString()));
+                tasks.Add(pool.QueueUserTask(o => { values[o] = true; Interlocked.Increment(ref finished); }, (count++).ToString()));
 
-            var tasks = new List<ApplicationThreadPool.TaskState>();
-            var values = new ConcurrentDictionary<string, bool>();
-            var finished = 0;
-            var count = 0;
-            tasks.Add(pool.QueueUserTask(o => { values[o] = true; Interlocked.Increment(ref finished); }, (count++).ToString()));
-            tasks.Add(pool.QueueUserTask(o => { values[o] = true; Interlocked.Increment(ref finished); }, (count++).ToString()));
-            tasks.Add(pool.QueueUserTask(o => { values[o] = true; Interlocked.Increment(ref finished); }, (count++).ToString()));
-            tasks.Add(pool.QueueUserTask(o => { values[o] = true; Interlocked.Increment(ref finished); }, (count++).ToString()));
+                ApplicationThreadPool.TaskState.WaitAll(tasks, true);
 
-            ApplicationThreadPool.TaskState.WaitAll(tasks, true);
+                Assert.AreEqual(4, finished);
+                Assert.AreEqual(4, values.Count);
 
-            Assert.AreEqual(4, finished);
-            Assert.AreEqual(4, values.Count);
+                Assert.AreEqual(0, pool.ActiveThreads);
+                Assert.AreEqual(2, pool.AvailableThreads);
+                Assert.AreEqual(0, pool.QueueLength);
+                Assert.AreEqual(0, pool.TotalExceptions);
+                Assert.AreEqual(0, pool.TotalQueueLength);
+                Assert.AreEqual(4, pool.CompletedItems);
+            }
+        }
 
-            Assert.AreEqual(0, pool.ActiveThreads);
-            Assert.AreEqual(2, pool.AvailableThreads);
-            Assert.AreEqual(0, pool.QueueLength);
-            Assert.AreEqual(0, pool.TotalExceptions);
-            Assert.AreEqual(0, pool.TotalQueueLength);
+        [Test()]
+        public void TestFourBlockingThreads()
+        {
+            using (var pool = new ApplicationThreadPool("test", 4, 8, true))
+            {
+                using (var block = new ManualResetEvent(false))
+                {
+                    pool.QueueUserWorkItem(o => { block.WaitOne(); });
+                    pool.QueueUserWorkItem(o => { block.WaitOne(); });
+                    pool.QueueUserWorkItem(o => { block.WaitOne(); });
+                    pool.QueueUserWorkItem(o => { block.WaitOne(); });
+
+                    AssertWaitFor(() => pool.ActiveThreads == 4);
+                    Assert.AreEqual(0, pool.AvailableThreads);
+                    Assert.AreEqual(0, pool.QueueLength);
+                    Assert.AreEqual(0, pool.TotalExceptions);
+                    Assert.AreEqual(4, pool.TotalQueueLength);
+                    Assert.AreEqual(0, pool.CompletedItems);
+
+                    block.Set();
+
+                    AssertWaitFor(() => pool.ActiveThreads == 0);
+                    Assert.AreEqual(4, pool.AvailableThreads);
+                    Assert.AreEqual(0, pool.QueueLength);
+                    Assert.AreEqual(0, pool.TotalExceptions);
+                    Assert.AreEqual(0, pool.TotalQueueLength);
+                    Assert.AreEqual(4, pool.CompletedItems);
+                }
+            }
+        }
+
+        [Test()]
+        public void TestFourBlockingThreadsCountdown()
+        {
+            using (var pool = new ApplicationThreadPool("test", 2, 8, true))
+            {
+                var activeWorkerEvents = new ConcurrentQueue<int>();
+
+                var workerEvents = new ManualResetEvent[4];
+                for (var i = 0; i < workerEvents.Length; ++i)
+                {
+                    workerEvents[i] = new ManualResetEvent(false);
+                }
+
+                for (var i = 0; i < workerEvents.Length; ++i)
+                {
+                    pool.QueueUserWorkItem(o => { var n = (int)o; activeWorkerEvents.Enqueue(n); workerEvents[n].WaitOne(); }, i);
+                }
+
+                AssertWaitFor(() => pool.ActiveThreads == 2);
+                Assert.AreEqual(0, pool.AvailableThreads);
+                Assert.AreEqual(2, pool.QueueLength);
+                Assert.AreEqual(4, pool.TotalQueueLength);
+                Assert.AreEqual(0, pool.TotalExceptions);
+                Assert.AreEqual(0, pool.CompletedItems);
+
+                int eventIndex = 0;
+                Assert.IsTrue(activeWorkerEvents.TryDequeue(out eventIndex));
+                workerEvents[eventIndex].Set();
+
+                AssertWaitFor(() => pool.CompletedItems == 1);
+                AssertWaitFor(() => pool.ActiveThreads == 2);
+                Assert.AreEqual(0, pool.AvailableThreads);
+                Assert.AreEqual(1, pool.QueueLength);
+                Assert.AreEqual(3, pool.TotalQueueLength);
+                Assert.AreEqual(0, pool.TotalExceptions);
+
+                Assert.IsTrue(activeWorkerEvents.TryDequeue(out eventIndex));
+                workerEvents[eventIndex].Set();
+
+                AssertWaitFor(() => pool.CompletedItems == 2);
+                AssertWaitFor(() => pool.ActiveThreads == 2);
+                Assert.AreEqual(0, pool.AvailableThreads);
+                Assert.AreEqual(0, pool.QueueLength);
+                Assert.AreEqual(2, pool.TotalQueueLength);
+                Assert.AreEqual(0, pool.TotalExceptions);
+
+                Assert.IsTrue(activeWorkerEvents.TryDequeue(out eventIndex));
+                workerEvents[eventIndex].Set();
+
+                AssertWaitFor(() => pool.CompletedItems == 3);
+                AssertWaitFor(() => pool.ActiveThreads == 1);
+                Assert.AreEqual(1, pool.AvailableThreads);
+                Assert.AreEqual(0, pool.QueueLength);
+                Assert.AreEqual(1, pool.TotalQueueLength);
+                Assert.AreEqual(0, pool.TotalExceptions);
+
+                Assert.IsTrue(activeWorkerEvents.TryDequeue(out eventIndex));
+                workerEvents[eventIndex].Set();
+
+                AssertWaitFor(() => pool.CompletedItems == 4);
+                AssertWaitFor(() => pool.ActiveThreads == 0);
+                Assert.AreEqual(2, pool.AvailableThreads);
+                Assert.AreEqual(0, pool.QueueLength);
+                Assert.AreEqual(0, pool.TotalQueueLength);
+                Assert.AreEqual(0, pool.TotalExceptions);
+            }
         }
         #endregion
     }
 }
-
