@@ -1,0 +1,5 @@
+language: csharp
+install:
+  - cd tests/ThreadPool.Tests && nuget restore ThreadPool.Tests.sln && nuget install NUnit.Runners -Version 2.6.4 -OutputDirectory testrunner
+script:
+  - cd tests/ThreadPool.Tests && xbuild /p:Configuration=Debug ThreadPool.Tests.sln && mono ./testrunner/NUnit.Runners.2.6.4/tools/nunit-console.exe ./ThreadPool.Tests/bin/Debug/ThreadPool.Tests.dll
