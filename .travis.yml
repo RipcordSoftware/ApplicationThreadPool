@@ -1,4 +1,6 @@
 language: csharp
+sudo: false
+
 install:
   - cd tests/ThreadPool.Tests && nuget restore ThreadPool.Tests.sln && nuget install NUnit.Runners -Version 2.6.4 -OutputDirectory testrunner
 script:
