@@ -2,7 +2,7 @@ language: csharp
 sudo: false
 
 install:
-  - cd tests/ThreadPool.Tests
+  - cd tests/ThreadPool.Tests.mono
   - nuget restore ThreadPool.Tests.sln
   - nuget install NUnit.Runners -Version 2.6.4 -OutputDirectory testrunner
 
