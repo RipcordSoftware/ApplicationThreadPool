@@ -2,5 +2,9 @@ platform: Any CPU
 configuration: Debug
 image: Visual Studio 2015
 
+before_build:
+    - cd tests\ThreadPool.Tests.dotnet
+    - nuget restore
+
 build:
     project: tests\ThreadPool.Tests.dotnet\ThreadPool.Tests.sln
