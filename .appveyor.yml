@@ -2,9 +2,12 @@ platform: Any CPU
 configuration: Debug
 image: Visual Studio 2017
 
+environment:
+    TEST_DIR: tests\ThreadPool.Tests.dotnet
+
 before_build:
-    - cd tests\ThreadPool.Tests.dotnet
+    - cd "%TEST_DIR%"
     - nuget restore
 
 build:
-    project: tests\ThreadPool.Tests.dotnet\ThreadPool.Tests.sln
+    project: $(TEST_DIR)\ThreadPool.Tests.sln
