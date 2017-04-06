@@ -32,7 +32,7 @@ namespace RipcordSoftware.ThreadPool
     /// <summary>
     /// The interface for simple thread pool access
     /// </summary>
-    public interface IThreadPool
+    public interface IThreadPool : IDisposable
     {
         bool QueueUserWorkItem(WaitCallback callback, object state = null);
 
@@ -69,12 +69,16 @@ namespace RipcordSoftware.ThreadPool
                 return availableWorkers;
             }
         }
+
+        public void Dispose()
+        {
+        }
     }
 
     /// <summary>
     /// Implements an application thread pool
     /// </summary>
-    public class ApplicationThreadPool : IDisposable, IThreadPool
+    public class ApplicationThreadPool : IThreadPool
     {
         #region Private fields
         /// <summary>
@@ -281,7 +285,7 @@ namespace RipcordSoftware.ThreadPool
         /// <param name="pcSize">A percentage size value, can exceed 100% if required</param>
         public static int CalculateThreadCount(int pcSize)
         {
-            int size = pcSize * System.Environment.ProcessorCount;
+            int size = pcSize * ProcessorCount;
             size /= 100;
 
             return size > 0 ? size : 1;
@@ -368,6 +372,7 @@ namespace RipcordSoftware.ThreadPool
         public int TotalQueueLength { get { return _queuedItems; } }
         public int MaxQueueLength { get { return _maxQueueLength; } }
         public long CompletedItems { get { return _completedItems; } }
+        public static int ProcessorCount { get { return System.Environment.ProcessorCount; } }
         #endregion
 
         #region IDisposable Members

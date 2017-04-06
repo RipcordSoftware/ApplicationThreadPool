@@ -50,6 +50,38 @@ namespace ThreadPool.Tests
 
         #region Tests
         [Test()]
+        public void TestProcessorCount()
+        {
+            Assert.AreEqual(Environment.ProcessorCount, ApplicationThreadPool.ProcessorCount);
+            Assert.AreEqual(Environment.ProcessorCount, ApplicationThreadPool.CalculateThreadCount(100));
+            Assert.AreEqual(Math.Max(1, Environment.ProcessorCount / 2), ApplicationThreadPool.CalculateThreadCount(50));
+            Assert.AreEqual(Math.Max(1, Environment.ProcessorCount / 4), ApplicationThreadPool.CalculateThreadCount(25));
+            Assert.AreEqual(1, ApplicationThreadPool.CalculateThreadCount(0));
+        }
+
+        [Test()]
+        public void TestDefaultThreadPool()
+        {
+            using (var pool = new DefaultThreadPool())
+            {
+                Assert.IsTrue(pool.MaxThreads > 0);
+                Assert.IsTrue(pool.AvailableThreads > 0);
+                Assert.IsTrue(pool.AvailableThreads <= pool.MaxThreads);
+
+                var beforeStartAvailable = pool.AvailableThreads;
+                var startedEvent = new ManualResetEvent(false);
+                var pauseEvent = new ManualResetEvent(false);
+                pool.QueueUserWorkItem(o => { startedEvent.Set(); pauseEvent.WaitOne(); });
+
+                startedEvent.WaitOne();
+                var execurtingAvailable = pool.AvailableThreads;
+                pauseEvent.Set();
+
+                Assert.IsTrue(execurtingAvailable < beforeStartAvailable);
+            }
+        }
+
+        [Test()]
         public void TestInitialState()
         {
             using (var pool = new ApplicationThreadPool("test", 2, 8, true))
@@ -196,9 +228,11 @@ namespace ThreadPool.Tests
                 using (var task = pool.QueueUserTask(o => { finished = true; }))
                 {
                     task.Join();
+
+                    Assert.IsTrue(task.IsFinished);
                 }
 
-                Assert.IsTrue(finished);
+                Assert.IsTrue(finished);                
                 Assert.AreEqual(0, pool.ActiveThreads);
                 Assert.AreEqual(2, pool.AvailableThreads);
                 Assert.AreEqual(0, pool.QueueLength);
@@ -219,6 +253,7 @@ namespace ThreadPool.Tests
                     task.Join();
 
                     Assert.IsTrue(finished);
+                    Assert.IsTrue(task.IsFinished);
                     Assert.IsTrue(task.HasException);
                     Assert.IsTrue(task.Exception != null);
                     Assert.AreEqual("Hello world", task.Exception.Message);
@@ -475,6 +510,7 @@ namespace ThreadPool.Tests
                 Assert.IsTrue(activeWorkerEvents.TryDequeue(out eventIndex));
                 workerEvents[eventIndex].Set();
 
+                AssertWaitFor(() => pool.CompletedItems == 1);
                 AssertWaitFor(() => pool.ActiveThreads == 2);
                 Assert.AreEqual(0, pool.AvailableThreads);
                 Assert.AreEqual(1, pool.CompletedItems);
@@ -486,6 +522,7 @@ namespace ThreadPool.Tests
                 Assert.IsTrue(activeWorkerEvents.TryDequeue(out eventIndex));
                 workerEvents[eventIndex].Set();
                 
+                AssertWaitFor(() => pool.CompletedItems == 2);
                 AssertWaitFor(() => pool.ActiveThreads == 2);
                 Assert.AreEqual(0, pool.AvailableThreads);
                 Assert.AreEqual(2, pool.CompletedItems);
@@ -497,6 +534,7 @@ namespace ThreadPool.Tests
                 Assert.IsTrue(activeWorkerEvents.TryDequeue(out eventIndex));
                 workerEvents[eventIndex].Set();
                 
+                AssertWaitFor(() => pool.CompletedItems == 3);
                 AssertWaitFor(() => pool.ActiveThreads == 1);
                 Assert.AreEqual(1, pool.AvailableThreads);
                 Assert.AreEqual(3, pool.CompletedItems);
@@ -508,7 +546,8 @@ namespace ThreadPool.Tests
                 Assert.IsTrue(activeWorkerEvents.TryDequeue(out eventIndex));
                 workerEvents[eventIndex].Set();
                 
-                AssertWaitFor(() => pool.ActiveThreads == 0);
+                AssertWaitFor(() => pool.CompletedItems == 4);
+                Assert.AreEqual(0, pool.ActiveThreads);
                 Assert.AreEqual(2, pool.AvailableThreads);
                 Assert.AreEqual(4, pool.CompletedItems);
                 Assert.AreEqual(0, pool.QueueLength);
